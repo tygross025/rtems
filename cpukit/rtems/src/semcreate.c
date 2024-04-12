@@ -29,7 +29,8 @@
 #include <rtems/sysinit.h>
 
 #define SEMAPHORE_KIND_MASK ( RTEMS_SEMAPHORE_CLASS | RTEMS_INHERIT_PRIORITY \
-  | RTEMS_PRIORITY_CEILING | RTEMS_MULTIPROCESSOR_RESOURCE_SHARING )
+  | RTEMS_PRIORITY_CEILING | RTEMS_MULTIPROCESSOR_RESOURCE_SHARING \
+  | RTEMS_DISTRIBUTED_PRIORITY_CEILING | RTEMS_MULTIPROCESSOR_PRIORITY_CEILING)
 
 rtems_status_code rtems_semaphore_create(
   rtems_name           name,
@@ -109,9 +110,34 @@ rtems_status_code rtems_semaphore_create(
      */
     variant = SEMAPHORE_VARIANT_MUTEX_PRIORITY_CEILING;
 #endif
-  } else {
+  } else if (
+      mutex_with_protocol
+	== ( RTEMS_BINARY_SEMAPHORE | RTEMS_DISTRIBUTED_PRIORITY_CEILING |  \
+	    RTEMS_GLOBAL)
+    ) {
+    #if defined(RTEMS_SMP)
+        variant = SEMAPHORE_VARIANT_DPCP;
+    #else
+        /*
+        * Use normal PCP on uni-processor
+        */
+        variant = SEMAPHORE_VARIANT_MUTEX_PRIORITY_CEILING;
+    #endif
+  }else if (
+    mutex_with_protocol
+      == ( RTEMS_BINARY_SEMAPHORE | RTEMS_MULTIPROCESSOR_PRIORITY_CEILING)
+        ) {
+    #if defined(RTEMS_SMP)
+	    variant = SEMAPHORE_VARIANT_MPCP;
+    #else
+      /*
+      * Use normal PCP on uni-processor
+      */
+      variant = RTEMS_MP_NOT_CONFIGURED;
+    #endif
+  }else {
     return RTEMS_NOT_DEFINED;
-  }
+}
 
   the_semaphore = _Semaphore_Allocate();
 
@@ -220,6 +246,40 @@ rtems_status_code rtems_semaphore_create(
           executing,
           count == 0
         );
+      } else {
+        status = STATUS_INVALID_PRIORITY;
+      }
+
+      break;
+    case SEMAPHORE_VARIANT_DPCP:
+      scheduler = _Thread_Scheduler_get_home( executing );
+      priority = _RTEMS_Priority_To_core( scheduler, priority_ceiling, &valid );
+
+      if ( valid ) {
+        status = _DPCP_Initialize(
+          &the_semaphore->Core_control.DPCP,
+          scheduler,
+          priority,
+          executing,
+          count == 0
+        );
+      } else {
+        status = STATUS_INVALID_PRIORITY;
+      }
+
+      break;
+    case SEMAPHORE_VARIANT_MPCP:
+      scheduler = _Thread_Scheduler_get_home( executing );
+      priority = _RTEMS_Priority_To_core( scheduler, priority_ceiling, &valid );
+
+      if ( valid ) {
+        status = _MPCP_Initialize(
+	 &the_semaphore->Core_control.MPCP,
+	 scheduler,
+	 priority,
+	 executing,
+	 count == 0
+       );
       } else {
         status = STATUS_INVALID_PRIORITY;
       }

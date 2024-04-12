@@ -72,6 +72,14 @@ rtems_status_code rtems_semaphore_delete(
     case SEMAPHORE_VARIANT_MRSP:
       status = _MRSP_Can_destroy( &the_semaphore->Core_control.MRSP );
       break;
+
+    case SEMAPHORE_VARIANT_DPCP:
+      status = _DPCP_Can_destroy( &the_semaphore->Core_control.DPCP );
+      break;
+
+    case SEMAPHORE_VARIANT_MPCP:
+      status = _MPCP_Can_destroy( &the_semaphore->Core_control.MPCP);
+      break;
 #endif
     default:
       _Assert(
@@ -97,6 +105,14 @@ rtems_status_code rtems_semaphore_delete(
 #if defined(RTEMS_SMP)
     case SEMAPHORE_VARIANT_MRSP:
       _MRSP_Destroy( &the_semaphore->Core_control.MRSP, &queue_context );
+      break;
+
+    case SEMAPHORE_VARIANT_DPCP:
+      _DPCP_Destroy( &the_semaphore->Core_control.DPCP, &queue_context );
+      break;
+
+    case SEMAPHORE_VARIANT_MPCP:
+      _MPCP_Destroy( &the_semaphore->Core_control.MPCP, &queue_context );
       break;
 #endif
     default:

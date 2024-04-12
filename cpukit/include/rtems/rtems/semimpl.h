@@ -20,6 +20,8 @@
 #include <rtems/rtems/semdata.h>
 #include <rtems/score/coremuteximpl.h>
 #include <rtems/score/coresemimpl.h>
+#include <rtems/score/dpcpimpl.h>
+#include <rtems/score/mpcpimpl.h>
 #include <rtems/score/mrspimpl.h>
 
 #ifdef __cplusplus
@@ -47,7 +49,9 @@ typedef enum {
   SEMAPHORE_VARIANT_COUNTING
 #if defined(RTEMS_SMP)
   ,
-  SEMAPHORE_VARIANT_MRSP
+  SEMAPHORE_VARIANT_MRSP,
+  SEMAPHORE_VARIANT_DPCP,
+  SEMAPHORE_VARIANT_MPCP
 #endif
 } Semaphore_Variant;
 

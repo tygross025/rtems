@@ -21,6 +21,8 @@
 #include <rtems/rtems/sem.h>
 #include <rtems/score/coremutex.h>
 #include <rtems/score/coresem.h>
+#include <rtems/score/dpcp.h>
+#include <rtems/score/mpcp.h>
 #include <rtems/score/mrsp.h>
 #include <rtems/score/object.h>
 
@@ -78,6 +80,8 @@ typedef struct {
 
 #if defined(RTEMS_SMP)
     MRSP_Control MRSP;
+    DPCP_Control DPCP;
+    MPCP_Control MPCP;
 #endif
   } Core_control;
 }   Semaphore_Control;

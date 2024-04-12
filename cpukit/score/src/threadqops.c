@@ -1459,6 +1459,14 @@ const Thread_queue_Operations _Thread_queue_Operations_default = {
    */
 };
 
+const Thread_queue_Operations _Thread_queue_Operations_FIFO_PIP = {
+  .priority_actions = _Thread_queue_Priority_inherit_priority_actions,
+  .enqueue = _Thread_queue_FIFO_enqueue,
+  .extract = _Thread_queue_FIFO_extract,
+  .surrender = _Thread_queue_FIFO_surrender,
+  .first = _Thread_queue_FIFO_first
+};
+
 const Thread_queue_Operations _Thread_queue_Operations_FIFO = {
   .priority_actions = _Thread_queue_Do_nothing_priority_actions,
   .enqueue = _Thread_queue_FIFO_enqueue,

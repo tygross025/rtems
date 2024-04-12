@@ -98,6 +98,20 @@ rtems_status_code rtems_semaphore_release( rtems_id id )
         &queue_context
       );
       break;
+    case SEMAPHORE_VARIANT_DPCP:
+      status = _DPCP_Surrender(
+        &the_semaphore->Core_control.DPCP,
+        executing,
+        &queue_context
+      );
+      break;
+    case SEMAPHORE_VARIANT_MPCP:
+      status = _MPCP_Surrender(
+        &the_semaphore->Core_control.MPCP,
+        executing,
+        &queue_context
+      );
+      break;
 #endif
     default:
       _Assert( variant == SEMAPHORE_VARIANT_COUNTING );

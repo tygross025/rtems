@@ -26,6 +26,7 @@
 #include <rtems/score/threaddispatch.h>
 #include <rtems/score/threadimpl.h>
 #include <rtems/score/status.h>
+#include <rtems/score/schedulerimpl.h>
 #include <rtems/score/watchdogimpl.h>
 
 #define THREAD_QUEUE_INTEND_TO_BLOCK \
@@ -452,6 +453,140 @@ void _Thread_queue_Enqueue(
   _Thread_Dispatch_direct( cpu_self );
 }
 
+void _Thread_queue_Enqueue2(
+  Thread_queue_Queue            *queue,
+  const Thread_queue_Operations *operations,
+  Thread_Control                *the_thread,
+  Thread_queue_Context          *queue_context,
+  Per_CPU_Control *cpu
+)
+{
+  Per_CPU_Control *cpu_self;
+  bool             success;
+
+  cpu_self = cpu;
+  _Assert( queue_context->enqueue_callout != NULL );
+
+#if defined(RTEMS_MULTIPROCESSING)
+  if ( _Thread_MP_Is_receive( the_thread ) && the_thread->receive_packet ) {
+    the_thread = _Thread_MP_Allocate_proxy( queue_context->thread_state );
+  }
+#endif
+
+  _Thread_Wait_claim( the_thread, queue );
+
+  if ( !_Thread_queue_Path_acquire_critical( queue, the_thread, queue_context ) ) {
+    _Thread_queue_Path_release_critical( queue_context );
+    _Thread_Wait_restore_default( the_thread );
+    _Thread_queue_Queue_release( queue, &queue_context->Lock_context.Lock_context );
+    _Thread_Wait_tranquilize( the_thread );
+    _Assert( queue_context->deadlock_callout != NULL );
+    ( *queue_context->deadlock_callout )( the_thread );
+    _Thread_Dispatch_enable( cpu_self );
+    return;
+  }
+
+  _Thread_queue_Context_clear_priority_updates( queue_context );
+  _Thread_Wait_claim_finalize( the_thread, operations );
+  ( *operations->enqueue )( queue, the_thread, queue_context );
+
+  _Thread_queue_Path_release_critical( queue_context );
+
+  the_thread->Wait.return_code = STATUS_SUCCESSFUL;
+  _Thread_Wait_flags_set( the_thread, THREAD_QUEUE_INTEND_TO_BLOCK );
+  _Thread_queue_Queue_release( queue, &queue_context->Lock_context.Lock_context );
+
+  ( *queue_context->enqueue_callout )(
+    queue,
+    the_thread,
+    cpu_self,
+    queue_context
+  );
+
+  /*
+   *  Set the blocking state for this thread queue in the thread.
+   */
+  _Thread_Set_state( the_thread, queue_context->thread_state );
+
+  /*
+   * At this point thread dispatching is disabled, however, we already released
+   * the thread queue lock.  Thus, interrupts or threads on other processors
+   * may already changed our state with respect to the thread queue object.
+   * The request could be satisfied or timed out.  This situation is indicated
+   * by the thread wait flags.  Other parties must not modify our thread state
+   * as long as we are in the THREAD_QUEUE_INTEND_TO_BLOCK thread wait state,
+   * thus we have to cancel the blocking operation ourself if necessary.
+   */
+  success = _Thread_Wait_flags_try_change_acquire(
+    the_thread,
+    THREAD_QUEUE_INTEND_TO_BLOCK,
+    THREAD_QUEUE_BLOCKED
+  );
+  if ( !success ) {
+    _Thread_Remove_timer_and_unblock( the_thread, queue );
+  }
+
+  _Thread_Priority_update( queue_context );
+  _Thread_Dispatch_direct( cpu_self );
+}
+
+void _Thread_queue_Enqueue_busy(
+  Thread_queue_Queue            *queue,
+  const Thread_queue_Operations *operations,
+  Thread_Control                *the_thread,
+  Thread_queue_Context          *queue_context
+)
+{
+  Per_CPU_Control *cpu_self;
+
+  _Assert( queue_context->enqueue_callout != NULL );
+
+#if defined(RTEMS_MULTIPROCESSING)
+  if ( _Thread_MP_Is_receive( the_thread ) && the_thread->receive_packet ) {
+    the_thread = _Thread_MP_Allocate_proxy( queue_context->thread_state );
+  }
+#endif
+
+  _Thread_Wait_claim( the_thread, queue );
+
+  if ( !_Thread_queue_Path_acquire_critical( queue, the_thread, queue_context ) ) {
+    _Thread_queue_Path_release_critical( queue_context );
+    _Thread_Wait_restore_default( the_thread );
+    _Thread_queue_Queue_release( queue, &queue_context->Lock_context.Lock_context );
+    _Thread_Wait_tranquilize( the_thread );
+    _Assert( queue_context->deadlock_callout != NULL );
+    ( *queue_context->deadlock_callout )( the_thread );
+    return;
+  }
+
+  _Thread_queue_Context_clear_priority_updates( queue_context );
+  _Thread_Wait_claim_finalize( the_thread, operations );
+  ( *operations->enqueue )( queue, the_thread, queue_context );
+
+  _Thread_queue_Path_release_critical( queue_context );
+
+  the_thread->Wait.return_code = STATUS_SUCCESSFUL;
+  _Thread_Wait_flags_set( the_thread, THREAD_QUEUE_INTEND_TO_BLOCK );
+  _Thread_queue_Queue_release( queue, &queue_context->Lock_context.Lock_context );
+
+  ( *queue_context->enqueue_callout )(
+    queue,
+    the_thread,
+    cpu_self,
+    queue_context
+  );
+
+  while (
+     _Thread_Wait_flags_get_acquire( the_thread ) == THREAD_QUEUE_INTEND_TO_BLOCK
+   ) {
+     /* Wait */
+   }
+
+
+  _Thread_Timer_remove( the_thread );
+  _Thread_Dispatch_direct( cpu_self );
+}
+
 #if defined(RTEMS_SMP)
 Status_Control _Thread_queue_Enqueue_sticky(
   Thread_queue_Queue            *queue,
@@ -501,6 +636,67 @@ Status_Control _Thread_queue_Enqueue_sticky(
 
   _Thread_Priority_update( queue_context );
   _Thread_Priority_and_sticky_update( the_thread, 1 );
+  _Thread_Dispatch_enable( cpu_self );
+
+  while (
+    _Thread_Wait_flags_get_acquire( the_thread ) == THREAD_QUEUE_INTEND_TO_BLOCK
+  ) {
+    /* Wait */
+  }
+
+  _Thread_Wait_tranquilize( the_thread );
+  _Thread_Timer_remove( the_thread );
+  return _Thread_Wait_get_status( the_thread );
+}
+#endif
+
+#if defined(RTEMS_SMP)
+Status_Control _Thread_queue_Enqueue_sticky_no_update(
+  Thread_queue_Queue            *queue,
+  const Thread_queue_Operations *operations,
+  Thread_Control                *the_thread,
+  Thread_queue_Context          *queue_context
+)
+{
+  Per_CPU_Control *cpu_self;
+
+  _Assert( queue_context->enqueue_callout != NULL );
+
+  _Thread_Wait_claim( the_thread, queue );
+
+  if ( !_Thread_queue_Path_acquire_critical( queue, the_thread, queue_context ) ) {
+    _Thread_queue_Path_release_critical( queue_context );
+    _Thread_Wait_restore_default( the_thread );
+    _Thread_queue_Queue_release( queue, &queue_context->Lock_context.Lock_context );
+    _Thread_Wait_tranquilize( the_thread );
+    ( *queue_context->deadlock_callout )( the_thread );
+    return _Thread_Wait_get_status( the_thread );
+  }
+
+  _Thread_queue_Context_clear_priority_updates( queue_context );
+  _Thread_Wait_claim_finalize( the_thread, operations );
+  ( *operations->enqueue )( queue, the_thread, queue_context );
+
+  _Thread_queue_Path_release_critical( queue_context );
+
+  the_thread->Wait.return_code = STATUS_SUCCESSFUL;
+  _Thread_Wait_flags_set( the_thread, THREAD_QUEUE_INTEND_TO_BLOCK );
+  cpu_self = _Thread_queue_Dispatch_disable( queue_context );
+  _Thread_queue_Queue_release( queue, &queue_context->Lock_context.Lock_context );
+
+  if ( cpu_self->thread_dispatch_disable_level != 1 ) {
+    _Internal_error(
+      INTERNAL_ERROR_THREAD_QUEUE_ENQUEUE_STICKY_FROM_BAD_STATE
+    );
+  }
+
+  ( *queue_context->enqueue_callout )(
+    queue,
+    the_thread,
+    cpu_self,
+    queue_context
+  );
+
   _Thread_Dispatch_enable( cpu_self );
 
   while (
@@ -704,6 +900,55 @@ void _Thread_queue_Surrender(
   _Thread_Dispatch_enable( cpu_self );
 }
 
+void _Thread_queue_Surrender_and_Migrate(
+  Thread_queue_Queue            *queue,
+  Thread_queue_Heads            *heads,
+  Thread_Control                *previous_owner,
+  Thread_queue_Context          *queue_context,
+  const Thread_queue_Operations *operations,
+  Per_CPU_Control *cpu,
+  Priority_Node *priority
+)
+{
+  Thread_Control  *new_owner;
+  bool             unblock;
+  Per_CPU_Control *cpu_self;
+  ISR_lock_Context lock_context;
+
+  _Assert( heads != NULL );
+
+  _Thread_queue_Context_clear_priority_updates( queue_context );
+  new_owner = ( *operations->surrender )(
+    queue,
+    heads,
+    previous_owner,
+    queue_context
+  );
+  queue->owner = new_owner;
+
+#if defined(RTEMS_MULTIPROCESSING)
+  if ( !_Thread_queue_MP_set_callout( new_owner, queue_context ) )
+#endif
+  {
+    _Thread_Resource_count_increment( new_owner );
+  }
+
+  unblock = _Thread_queue_Make_ready_again( new_owner );
+
+  _Thread_queue_Queue_release(
+    queue,
+    &queue_context->Lock_context.Lock_context
+  );
+
+  if ( unblock ) {
+    _Thread_Remove_timer_and_unblock( new_owner, queue );
+  }
+  _Thread_Wait_acquire_default_critical( new_owner, &lock_context );
+  _Scheduler_Migrate_To(new_owner, cpu, priority);
+
+  _Thread_Wait_release_default_critical( new_owner, &lock_context );
+}
+
 #if defined(RTEMS_SMP)
 void _Thread_queue_Surrender_sticky(
   Thread_queue_Queue            *queue,
@@ -715,6 +960,50 @@ void _Thread_queue_Surrender_sticky(
 {
   Thread_Control  *new_owner;
   Per_CPU_Control *cpu_self;
+
+  _Assert( heads != NULL );
+
+  _Thread_queue_Context_clear_priority_updates( queue_context );
+  new_owner = ( *operations->surrender )(
+    queue,
+    heads,
+    previous_owner,
+    queue_context
+  );
+  queue->owner = new_owner;
+  _Thread_queue_Make_ready_again( new_owner );
+
+  cpu_self = _Thread_queue_Dispatch_disable( queue_context );
+  _Thread_queue_Queue_release(
+    queue,
+    &queue_context->Lock_context.Lock_context
+  );
+
+  _Thread_Wait_acquire_default_critical( new_owner, &lock_context );
+  _Scheduler_Migrate_To(new_owner, cpu, priority);
+  _Thread_Wait_release_default_critical( new_owner, &lock_context );
+
+  _Thread_Priority_and_sticky_update( previous_owner, -1 );
+  _Thread_Priority_and_sticky_update( new_owner, 0 );
+
+  _Thread_Dispatch_enable( cpu_self );
+}
+#endif
+
+#if defined(RTEMS_SMP)
+void _Thread_queue_Surrender_sticky_and_migrate(
+  Thread_queue_Queue            *queue,
+  Thread_queue_Heads            *heads,
+  Thread_Control                *previous_owner,
+  Thread_queue_Context          *queue_context,
+  const Thread_queue_Operations *operations,
+  Per_CPU_Control *cpu,
+  Priority_Node *priority
+)
+{
+  Thread_Control  *new_owner;
+  Per_CPU_Control *cpu_self;
+  ISR_lock_Context lock_context;
 
   _Assert( heads != NULL );
 

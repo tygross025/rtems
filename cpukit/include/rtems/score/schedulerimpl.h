@@ -1342,6 +1342,149 @@ RTEMS_INLINE_ROUTINE Status_Control _Scheduler_Set(
   return STATUS_SUCCESSFUL;
 }
 
+RTEMS_INLINE_ROUTINE void _Scheduler_Migrate_To(
+  Thread_Control  *executing,
+  Per_CPU_Control *migration_cpu,
+  Priority_Node   *ceiling_priority
+)
+{
+  ISR_lock_Context         lock_context;
+  const Scheduler_Control *migration_scheduler;
+  const Scheduler_Control *home_scheduler;
+  Scheduler_Node 	  *home_node;
+  Scheduler_Node 	  *migration_node;
+  size_t          	   migration_scheduler_index;
+  ISR_lock_Context         scheduler_lock_context;
+  Per_CPU_Control         *cpu_self;
+
+  home_node = _Thread_Scheduler_get_home_node( executing );
+  home_scheduler = _Thread_Scheduler_get_home( executing );
+
+  _Scheduler_Acquire_critical( home_scheduler, &lock_context );
+  ( *home_scheduler->Operations.block )(
+    home_scheduler,
+    executing,
+    home_node
+  );
+  _Scheduler_Release_critical( home_scheduler, &lock_context );
+
+  migration_scheduler = _Scheduler_Get_by_CPU(migration_cpu);
+  migration_scheduler_index = _Scheduler_Get_index(migration_scheduler);
+  migration_node = _Thread_Scheduler_get_node_by_index(executing ,migration_scheduler_index);
+
+  _Thread_Scheduler_acquire_critical( executing, &scheduler_lock_context );
+  _Scheduler_Node_set_priority( migration_node, ceiling_priority->priority, false );
+  _Chain_Append_unprotected(
+    &executing->Scheduler.Scheduler_nodes,
+    &migration_node->Thread.Scheduler_node.Chain
+  );
+  _Chain_Append_unprotected(
+    &executing->Scheduler.Wait_nodes,
+    &migration_node->Thread.Wait_node
+  );
+  _Thread_Scheduler_release_critical( executing, &scheduler_lock_context );
+
+  _Scheduler_Acquire_critical( migration_scheduler, &lock_context );
+  ( *migration_scheduler->Operations.update_priority )(
+    migration_scheduler,
+    executing,
+    migration_node
+  );
+  ( *migration_scheduler->Operations.unblock )(
+    migration_scheduler,
+    executing,
+    migration_node
+  );
+  _Scheduler_Release_critical( migration_scheduler, &lock_context );
+}
+
+RTEMS_INLINE_ROUTINE void _Scheduler_Migrate_Back(
+  Thread_Control  *executing,
+  Per_CPU_Control *migration_cpu
+)
+{
+  ISR_lock_Context         lock_context;
+  ISR_lock_Context 	   scheduler_lock_context;
+  const Scheduler_Control *migration_scheduler;
+  const Scheduler_Control *home_scheduler;
+  Scheduler_Node 	  *home_node;
+  Scheduler_Node 	  *migration_node;
+  size_t 		   migration_scheduler_index;
+
+  migration_scheduler = _Scheduler_Get_by_CPU( migration_cpu );
+  migration_scheduler_index = _Scheduler_Get_index( migration_scheduler );
+  migration_node = _Thread_Scheduler_get_node_by_index(
+    executing,
+    migration_scheduler_index
+  );
+
+  _Scheduler_Acquire_critical( migration_scheduler, &lock_context );
+  _Thread_Scheduler_acquire_critical( executing, &scheduler_lock_context );
+  _Scheduler_Node_set_priority(
+    migration_node,
+    migration_scheduler->maximum_priority,
+    false
+  );
+  _Thread_Scheduler_release_critical( executing, &scheduler_lock_context );
+  ( *migration_scheduler->Operations.update_priority )(
+    migration_scheduler,
+    executing,
+    migration_node
+  );
+  ( *migration_scheduler->Operations.block )(
+    migration_scheduler,
+    executing,
+    migration_node
+  );
+  _Scheduler_Release_critical( migration_scheduler, &lock_context );
+
+  _Thread_Scheduler_acquire_critical( executing, &scheduler_lock_context );
+  _Chain_Extract_unprotected( &migration_node->Thread.Wait_node );
+  _Chain_Extract_unprotected( &migration_node->Thread.Scheduler_node.Chain );
+  _Thread_Scheduler_release_critical( executing, &scheduler_lock_context );
+  home_node = _Thread_Scheduler_get_home_node( executing );
+  home_scheduler = _Thread_Scheduler_get_home( executing );
+
+  _Scheduler_Acquire_critical( home_scheduler, &lock_context );
+  ( *home_scheduler->Operations.unblock )(
+    home_scheduler,
+    executing,
+    home_node
+  );
+  _Scheduler_Release_critical( home_scheduler, &lock_context );
+}
+
+RTEMS_INLINE_ROUTINE void _Scheduler_Change_migration_priority(
+  Thread_Control  *executing,
+  Per_CPU_Control *migration_cpu,
+  Priority_Node   *priority
+)
+{
+  const Scheduler_Control *migration_scheduler;
+  Scheduler_Node  	  *migration_node;
+  size_t  		   migration_scheduler_index;
+  ISR_lock_Context    	   scheduler_lock_context;
+  ISR_lock_Context         lock_context;
+
+  migration_scheduler = _Scheduler_Get_by_CPU( migration_cpu );
+  migration_scheduler_index = _Scheduler_Get_index( migration_scheduler );
+  migration_node = _Thread_Scheduler_get_node_by_index(
+   executing,
+   migration_scheduler_index
+  );
+
+  _Scheduler_Acquire_critical( migration_scheduler, &lock_context );
+  _Thread_Scheduler_acquire_critical( executing, &scheduler_lock_context );
+  _Scheduler_Node_set_priority( migration_node, priority->priority, false );
+  _Thread_Scheduler_release_critical( executing, &scheduler_lock_context );
+  ( *migration_scheduler->Operations.update_priority )(
+    migration_scheduler,
+    executing,
+    migration_node
+  );
+  _Scheduler_Release_critical( migration_scheduler, &lock_context );
+}
+
 /** @} */
 
 #ifdef __cplusplus

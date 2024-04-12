@@ -120,6 +120,25 @@ rtems_status_code rtems_semaphore_obtain(
 );
 
 /**
+ * @brief RTEMS Semaphore Set Processor
+ *
+ * Sets the synchronization processor for the DPCP semaphores. It
+ * attempts to obtain a unit from the semaphore associated with ID.
+ *
+ *
+ * @param[in] id is the semaphore id
+ * @param[in] cpu is the number of the processor in the system
+ *
+ * @retval This method returns RTEMS_SUCCESSFUL if there was not an
+ *         error. Otherwise, a status code is returned indicating the
+ *         source of the error.
+ */
+rtems_status_code rtems_semaphore_set_processor(
+  rtems_id id,
+  int      cpu
+);
+
+/**
  *  @brief RTEMS Semaphore Release
  *
  *  This routine implements the rtems_semaphore_release directive.  It

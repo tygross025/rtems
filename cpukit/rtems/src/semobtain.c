@@ -46,6 +46,18 @@ THREAD_QUEUE_OBJECT_ASSERT(
   Core_control.MRSP.Wait_queue,
   SEMAPHORE_CONTROL_MRSP
 );
+
+THREAD_QUEUE_OBJECT_ASSERT(
+  Semaphore_Control,
+  Core_control.MRSP.Wait_queue,
+  SEMAPHORE_CONTROL_DPCP
+);
+
+THREAD_QUEUE_OBJECT_ASSERT(
+  Semaphore_Control,
+  Core_control.MPCP.Wait_queue,
+  SEMAPHORE_CONTROL_MPCP
+);
 #endif
 
 rtems_status_code rtems_semaphore_obtain(
@@ -118,6 +130,22 @@ rtems_status_code rtems_semaphore_obtain(
     case SEMAPHORE_VARIANT_MRSP:
       status = _MRSP_Seize(
         &the_semaphore->Core_control.MRSP,
+        executing,
+        wait,
+        &queue_context
+      );
+      break;
+    case SEMAPHORE_VARIANT_DPCP:
+      status = _DPCP_Seize(
+        &the_semaphore->Core_control.DPCP,
+        executing,
+        wait,
+        &queue_context
+      );
+      break;
+    case SEMAPHORE_VARIANT_MPCP:
+      status = _MPCP_Seize(
+        &the_semaphore->Core_control.MPCP,
         executing,
         wait,
         &queue_context
