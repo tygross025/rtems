@@ -776,7 +776,6 @@ librtemscpu_a_SOURCES += rtems/src/semflush.c
 librtemscpu_a_SOURCES += rtems/src/semident.c
 librtemscpu_a_SOURCES += rtems/src/semobtain.c
 librtemscpu_a_SOURCES += rtems/src/semrelease.c
-librtemscpu_a_SOURCES += rtems/src/semticket.c
 librtemscpu_a_SOURCES += rtems/src/semsetprocessor.c
 librtemscpu_a_SOURCES += rtems/src/semsetpriority.c
 librtemscpu_a_SOURCES += rtems/src/signalcatch.c
