@@ -32,7 +32,10 @@ rtems_status_code rtems_semaphore_set_processor(
   Semaphore_Control   *the_semaphore;
   Thread_queue_Context queue_context;
   ISR_lock_Context     lock_context;
+  uintptr_t            flags;
+  Semaphore_Variant    variant;
   Status_Control       status;
+  
 
   the_semaphore = _Semaphore_Get( id, &queue_context );
 
@@ -48,7 +51,10 @@ rtems_status_code rtems_semaphore_set_processor(
     &queue_context,
     _Semaphore_Core_mutex_mp_support
   );
-  switch ( the_semaphore->variant ) {
+  flags = _Semaphore_Get_flags( the_semaphore );
+  variant = _Semaphore_Get_variant( flags );
+
+  switch ( variant ) {
     case SEMAPHORE_VARIANT_MUTEX_INHERIT_PRIORITY:
       status =  RTEMS_NOT_DEFINED;
       break;
@@ -75,7 +81,7 @@ rtems_status_code rtems_semaphore_set_processor(
      break;
 #endif
     default:
-      _Assert( the_semaphore->variant == SEMAPHORE_VARIANT_COUNTING );
+      _Assert(variant == SEMAPHORE_VARIANT_COUNTING );
       status = RTEMS_NOT_DEFINED;
       break;
   }
