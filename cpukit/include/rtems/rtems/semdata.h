@@ -126,6 +126,16 @@ void _Semaphore_MP_Send_extract_proxy (
       MRSP_Control Control; \
       Priority_Control ceiling_priorities[ scheduler_count ]; \
     } MRSP; \
+    struct { \
+      Objects_Control Object; \
+      DPCP_Control Control; \
+      Priority_Control ceiling_priorities[ scheduler_count ]; \
+    } DPCP; \
+    struct { \
+      Objects_Control Object; \
+      MPCP_Control Control; \
+      Priority_Control ceiling_priorities[ scheduler_count ]; \
+    } MPCP; \
   } Semaphore_Configured_control; \
   OBJECTS_INFORMATION_DEFINE( \
     _Semaphore, \

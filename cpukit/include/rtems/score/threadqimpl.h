@@ -1118,6 +1118,7 @@ void _Thread_queue_Surrender(
   const Thread_queue_Operations *operations
 );
 
+#if defined(RTEMS_SMP)
 /**
  * @brief Surrenders the thread queue previously owned by the thread to the
  * first enqueued thread.
